@@ -15,16 +15,13 @@ const clearBtn = document.getElementById('clearBtn');
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
-  // Load saved API key from localStorage
   const savedKey = localStorage.getItem('openai_api_key');
   if (savedKey) {
     apiKeyInput.value = savedKey;
   }
 
-  // Load journal entries
   loadJournalEntries();
 
-  // Event listeners
   saveKeyBtn.addEventListener('click', saveApiKey);
   submitEntryBtn.addEventListener('click', submitJournalEntry);
   exportBtn.addEventListener('click', exportEntries);
@@ -57,16 +54,13 @@ async function submitJournalEntry() {
     return;
   }
 
-  // Show loading state
   submitEntryBtn.disabled = true;
   loadingIndicator.classList.remove('hidden');
   formError.classList.add('hidden');
 
   try {
-    // Get analysis from OpenAI
     const { summary, mood } = await analyzeJournalEntry(entryText, apiKey);
-    
-    // Create and save new entry
+
     const newEntry = {
       id: Date.now(),
       text: entryText,
@@ -74,11 +68,10 @@ async function submitJournalEntry() {
       mood,
       createdAt: new Date().toISOString()
     };
-    
+
     saveEntry(newEntry);
     journalEntry.value = '';
     loadJournalEntries();
-    
   } catch (error) {
     console.error('Error:', error);
     showError(error.message);
@@ -100,11 +93,14 @@ async function analyzeJournalEntry(text, apiKey) {
       messages: [
         {
           role: "system",
-          content: `Analyze this journal entry. Follow these steps:
-          1. Provide a 1-2 sentence summary
-          2. Detect the primary mood (happy, sad, neutral, anxious, excited, angry, calm)
-          Respond in this exact format:
-          SUMMARY: [summary text here] | MOOD: [mood here]`
+          content: `You are an AI assistant that analyzes journal entries. For the input journal text, return a JSON object in the following format:
+
+{
+  "summary": "[1-2 sentence summary]",
+  "mood": "[happy, sad, neutral, anxious, excited, angry, calm]"
+}
+
+Only output valid JSON. Do not include any extra commentary or explanation.`
         },
         {
           role: "user",
@@ -122,30 +118,34 @@ async function analyzeJournalEntry(text, apiKey) {
 
   const data = await response.json();
   const analysis = data.choices[0].message.content;
-  
-  // Extract summary and mood
-  const summaryMatch = analysis.match(/SUMMARY:\s*(.+?)\s*\|\s*MOOD:/i);
-  const moodMatch = analysis.match(/MOOD:\s*(\w+)/i);
-  
-  if (!summaryMatch || !moodMatch) {
-    throw new Error('Could not parse AI response. Please try again.');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(analysis);
+  } catch (e) {
+    console.error('Raw AI response:', analysis);
+    throw new Error('Could not parse JSON response from AI');
   }
-  
+
+  if (!parsed.summary || !parsed.mood) {
+    throw new Error('Missing summary or mood in AI response');
+  }
+
   return {
-    summary: summaryMatch[1].trim(),
-    mood: moodMatch[1].trim().toLowerCase()
+    summary: parsed.summary.trim(),
+    mood: parsed.mood.trim().toLowerCase()
   };
 }
 
 function saveEntry(entry) {
   const entries = JSON.parse(localStorage.getItem('journal_entries') || '[]');
-  entries.unshift(entry); // Add new entry at beginning
+  entries.unshift(entry);
   localStorage.setItem('journal_entries', JSON.stringify(entries));
 }
 
 function loadJournalEntries() {
   const entries = JSON.parse(localStorage.getItem('journal_entries') || '[]');
-  
+
   if (entries.length === 0) {
     noEntriesMessage.classList.remove('hidden');
     timeline.innerHTML = '';
@@ -164,7 +164,7 @@ function loadJournalEntries() {
 function createEntryElement(entry) {
   const entryElement = document.createElement('div');
   entryElement.className = 'timeline-item';
-  
+
   const date = new Date(entry.createdAt);
   const formattedDate = date.toLocaleDateString('en-US', {
     year: 'numeric',
@@ -173,7 +173,7 @@ function createEntryElement(entry) {
     hour: '2-digit',
     minute: '2-digit'
   });
-  
+
   entryElement.innerHTML = `
     <div class="timeline-date">
       ${formattedDate}
@@ -187,20 +187,19 @@ function createEntryElement(entry) {
       <p class="entry-summary"><strong>AI Analysis:</strong> ${escapeHtml(entry.summary)}</p>
     </div>
   `;
-  
-  // Add delete event listener
+
   const deleteBtn = entryElement.querySelector('.delete-entry');
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     deleteEntry(entry.id);
   });
-  
+
   return entryElement;
 }
 
 function deleteEntry(id) {
   if (!confirm('Are you sure you want to delete this entry?')) return;
-  
+
   const entries = JSON.parse(localStorage.getItem('journal_entries') || '[]');
   const filteredEntries = entries.filter(entry => entry.id !== id);
   localStorage.setItem('journal_entries', JSON.stringify(filteredEntries));
@@ -213,12 +212,11 @@ function exportEntries() {
     alert('No entries to export');
     return;
   }
-  
+
   const dataStr = JSON.stringify(entries, null, 2);
   const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-  
   const exportName = `journal-entries-${new Date().toISOString().slice(0, 10)}.json`;
-  
+
   const linkElement = document.createElement('a');
   linkElement.setAttribute('href', dataUri);
   linkElement.setAttribute('download', exportName);
@@ -228,12 +226,12 @@ function exportEntries() {
 function importEntries(event) {
   const file = event.target.files[0];
   if (!file) return;
-  
+
   if (!confirm('Importing will replace all current entries. Continue?')) {
     importFile.value = '';
     return;
   }
-  
+
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -241,7 +239,7 @@ function importEntries(event) {
       if (!Array.isArray(importedEntries)) {
         throw new Error('Invalid file format');
       }
-      
+
       localStorage.setItem('journal_entries', JSON.stringify(importedEntries));
       loadJournalEntries();
       showTemporaryMessage(keySavedMessage, 'Entries imported successfully!');
@@ -256,7 +254,7 @@ function importEntries(event) {
 
 function confirmClearEntries() {
   if (!confirm('Are you sure you want to delete ALL journal entries? This cannot be undone.')) return;
-  
+
   localStorage.removeItem('journal_entries');
   loadJournalEntries();
   showTemporaryMessage(keySavedMessage, 'All entries have been deleted');
